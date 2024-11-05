@@ -1,39 +1,42 @@
 import os
 import csv
-import json
 import time
+from concurrent.futures import ThreadPoolExecutor
 from deep_translator import GoogleTranslator
 from deep_translator.exceptions import TranslationNotFound
 
-input_dir = 'Input'
-output_dir = 'Output'
+# Die Verzeichnisse für die Eingabe- und Ausgabedateien
+input_dir = '/Users/luka/Desktop/GitHub/EnglishToGermanAI/input'  # Klein geschrieben
+output_dir = '/Users/luka/Desktop/GitHub/EnglishToGermanAI/output'  # Angepasst
+
+def translate_text(text):
+    """Übersetzt einen einzelnen Text."""
+    try:
+        return GoogleTranslator(source='en', target='de').translate(text)
+    except TranslationNotFound:
+        return text  # Bei Fehler die ursprünglichen Texte zurückgeben
 
 def translate_batch(texts):
-    """Übersetzt eine Liste von Texten in einer einzigen Anfrage."""
-    try:
-        return GoogleTranslator(source='en', target='de').translate_batch(texts)
-    except TranslationNotFound:
-        return texts  # Bei Fehler die ursprünglichen Texte zurückgeben
+    """Übersetzt eine Liste von Texten in einer einzelnen Anfrage mit Threading."""
+    translated_texts = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        translated_texts = list(executor.map(translate_text, texts))
+    return translated_texts
 
 def process_file(filename):
     input_file_path = os.path.join(input_dir, filename)
 
-    # Bestimmen des Dateityps und Verarbeiten der Datei entsprechend
     if filename.endswith('.csv'):
         with open(input_file_path, 'r', encoding='utf-8') as file:
             reader = csv.reader(file)
             data = list(reader)
 
         # Flatten data for batch processing
-        all_texts = [text for row in data for text in row]
-        
+        all_texts = [text for row in data for text in row if text.strip()]  # Nur nicht-leere Texte
+        print(f"Gefundene Texte in {filename}: {len(all_texts)}")
+
         # Batch-Übersetzung
-        translated_texts = []
-        batch_size = 100  # Anzahl der Sätze pro Batch anpassen
-        for i in range(0, len(all_texts), batch_size):
-            batch = all_texts[i:i + batch_size]
-            translated_batch = translate_batch(batch)
-            translated_texts.extend(translated_batch)
+        translated_texts = translate_batch(all_texts)
 
         # Reformat the translated texts back to their original structure
         translated_data = []
@@ -46,42 +49,18 @@ def process_file(filename):
             writer.writerows(translated_data)
             print(f"Ausgabedatei erstellt: {output_file_path}")
 
-    elif filename.endswith('.txt'):
-        with open(input_file_path, 'r', encoding='utf-8') as file:
-            all_texts = file.readlines()
-
-        # Batch-Übersetzung
-        translated_texts = translate_batch([text.strip() for text in all_texts])
-
-        # Ausgabe in eine neue TXT-Datei
-        output_file_path = os.path.join(output_dir, filename)
-        with open(output_file_path, 'w', encoding='utf-8') as file:
-            file.writelines("\n".join(translated_texts))
-            print(f"Ausgabedatei erstellt: {output_file_path}")
-
-    elif filename.endswith('.json'):
-        with open(input_file_path, 'r', encoding='utf-8') as file:
-            data = json.load(file)
-
-        # Überprüfen, ob die Daten eine Liste von Texten enthalten
-        if isinstance(data, list):
-            translated_texts = translate_batch(data)
-            output_file_path = os.path.join(output_dir, filename)
-            with open(output_file_path, 'w', encoding='utf-8') as file:
-                json.dump(translated_texts, file, ensure_ascii=False, indent=4)
-                print(f"Ausgabedatei erstellt: {output_file_path}")
-
 if __name__ == '__main__':
     if not os.path.exists(output_dir):
         os.makedirs(output_dir)
 
-    print("Gefundene Dateien im Input-Verzeichnis:", os.listdir(input_dir))
+    # Filtern der Dateien im Input-Verzeichnis
+    valid_files = [f for f in os.listdir(input_dir) if f.endswith('.csv')]
+    print("Gefundene CSV-Dateien im Input-Verzeichnis:", valid_files)
 
     start_time = time.time()  # Startzeit erfassen
 
-    for filename in os.listdir(input_dir):
-        if filename.endswith(('.csv', '.txt', '.json')):
-            process_file(filename)
+    for filename in valid_files:
+        process_file(filename)
 
     end_time = time.time()  # Endzeit erfassen
     elapsed_time = end_time - start_time  # Verstrichene Zeit berechnen
